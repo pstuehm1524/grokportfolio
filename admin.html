@@ -63,19 +63,26 @@
     const db = getFirestore(app);
     const storage = getStorage(app);
 
-    window.firebase = { auth, db, storage, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
-                        collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp,
-                        ref, uploadBytes, getDownloadURL, deleteObject };
+    // Expose for global use in the inline script below
+    window.FB = {
+      auth, db, storage, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+      collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp,
+      ref, uploadBytes, getDownloadURL, deleteObject
+    };
   </script>
 
   <script>
+    const { auth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+            collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp,
+            ref, uploadBytes, getDownloadURL, deleteObject } = window.FB;
+
     const loginBtn = document.getElementById('loginBtn');
     const logoutBtn = document.getElementById('logoutBtn');
     const loginSection = document.getElementById('loginSection');
     const loggedIn = document.getElementById('loggedIn');
     const userEmail = document.getElementById('userEmail');
 
-    firebase.auth.onAuthStateChanged(user => {
+    onAuthStateChanged(auth, (user) => {
       if (user) {
         loginSection.style.display = 'none';
         loggedIn.style.display = 'block';
@@ -87,10 +94,11 @@
       }
     });
 
-    loginBtn.onclick = () => firebase.auth.signInWithPopup(new firebase.GoogleAuthProvider());
-    logoutBtn.onclick = () => firebase.auth.signOut();
+    loginBtn.onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
 
-    document.getElementById('uploadForm').onsubmit = e => {
+    logoutBtn.onclick = () => signOut(auth);
+
+    document.getElementById('uploadForm').onsubmit = async (e) => {
       e.preventDefault();
       const file = document.getElementById('photoFile').files[0];
       const category = document.getElementById('category').value.trim().toLowerCase();
@@ -98,49 +106,5 @@
 
       if (!file || !category) return alert('File and category required');
 
-      const storageRef = firebase.storage.ref(`images/${category}/${Date.now()}_${file.name}`);
-      storageRef.put(file).then(snap => {
-        snap.ref.getDownloadURL().then(url => {
-          firebase.db.collection('photos').add({
-            url, category, title: title || file.name,
-            createdAt: firebase.serverTimestamp()
-          }).then(() => {
-            alert('Uploaded!');
-            e.target.reset();
-            loadPhotos();
-          });
-        });
-      });
-    };
-
-    function loadPhotos() {
-      const list = document.getElementById('photoList');
-      list.innerHTML = '<p>Loading...</p>';
-      firebase.db.collection('photos').orderBy('createdAt', 'desc').get().then(snap => {
-        list.innerHTML = '';
-        snap.forEach(doc => {
-          const d = doc.data();
-          const div = document.createElement('div');
-          div.className = 'col-md-3 mb-4';
-          div.innerHTML = `
-            <div class="card">
-              <img src="${d.url}" class="card-img-top" style="height:200px;object-fit:cover">
-              <div class="card-body">
-                <small>${d.category} • ${d.title || 'Untitled'}</small><br>
-                <button class="btn btn-danger btn-sm mt-2" onclick="deletePhoto('${doc.id}','${d.url}')">Delete</button>
-              </div>
-            </div>`;
-          list.appendChild(div);
-        });
-      });
-    }
-
-    window.deletePhoto = (id, url) => {
-      if (!confirm('Delete forever?')) return;
-      const path = firebase.storage.refFromURL(url);
-      Promise.all([firebase.db.doc('photos/'+id).delete(), path.delete()])
-        .then(() => loadPhotos());
-    };
-  </script>
-</body>
-</html>
+      try {
+        const storageRef = ref(storage, `images/${category}/${Date
