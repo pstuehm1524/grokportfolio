@@ -21,11 +21,13 @@
     <h1>Admin Panel</h1>
 
     <div id="loginSection" class="my-4">
-      <button id="loginBtn" class="btn btn-primary btn-lg">Login with Google</button>
+      <input type="password" id="passwordInput" class="form-control mb-2" placeholder="Enter password (default: admin123)" maxlength="20">
+      <button id="loginBtn" class="btn btn-primary btn-lg">Login</button>
+      <p class="text-muted small mt-2">Change password in code below if needed.</p>
     </div>
 
-    <div id="loggedIn" style="display:none">
-      <p>Logged in as <span id="userEmail"></span> — <button id="logoutBtn" class="btn btn-sm btn-secondary">Logout</button></p>
+    <div id="loggedIn" style="display:none;">
+      <p>Logged in! — <button id="logoutBtn" class="btn btn-sm btn-secondary">Logout</button></p>
 
       <h3 class="mt-4">Upload Photo</h3>
       <form id="uploadForm">
@@ -44,7 +46,6 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
     import { getFirestore, collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
@@ -59,46 +60,65 @@
     };
 
     const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
     const db = getFirestore(app);
     const storage = getStorage(app);
 
-    // Expose for global use in the inline script below
+    // Expose for global use
     window.FB = {
-      auth, db, storage, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
-      collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp,
+      db, storage, collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp,
       ref, uploadBytes, getDownloadURL, deleteObject
     };
   </script>
 
   <script>
-    const { auth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
-            collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp,
+    const { db, storage, collection, addDoc, doc, deleteDoc, getDocs, query, orderBy, serverTimestamp,
             ref, uploadBytes, getDownloadURL, deleteObject } = window.FB;
+
+    // ←←← CHANGE THIS PASSWORD TO SOMETHING SECURE (e.g., your real password)
+    const ADMIN_PASSWORD = 'admin123';  // Default—edit here and commit to secure it
 
     const loginBtn = document.getElementById('loginBtn');
     const logoutBtn = document.getElementById('logoutBtn');
     const loginSection = document.getElementById('loginSection');
     const loggedIn = document.getElementById('loggedIn');
-    const userEmail = document.getElementById('userEmail');
+    const passwordInput = document.getElementById('passwordInput');
 
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
+    let isLoggedIn = false;
+
+    loginBtn.onclick = () => {
+      const password = passwordInput.value.trim();
+      if (password === ADMIN_PASSWORD) {
+        isLoggedIn = true;
+        localStorage.setItem('adminLoggedIn', 'true');  // Remember for this browser
         loginSection.style.display = 'none';
         loggedIn.style.display = 'block';
-        userEmail.textContent = user.email;
         loadPhotos();
+        alert('Logged in! Start uploading.');
       } else {
-        loginSection.style.display = 'block';
-        loggedIn.style.display = 'none';
+        alert('Wrong password—try again.');
+        passwordInput.value = '';
+        passwordInput.focus();
       }
-    });
+    };
 
-    loginBtn.onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
+    logoutBtn.onclick = () => {
+      isLoggedIn = false;
+      localStorage.removeItem('adminLoggedIn');
+      loginSection.style.display = 'block';
+      loggedIn.style.display = 'none';
+      passwordInput.focus();
+    };
 
-    logoutBtn.onclick = () => signOut(auth);
+    // Auto-login if previously set (for convenience)
+    if (localStorage.getItem('adminLoggedIn') === 'true') {
+      isLoggedIn = true;
+      loginSection.style.display = 'none';
+      loggedIn.style.display = 'block';
+      loadPhotos();
+    }
 
     document.getElementById('uploadForm').onsubmit = async (e) => {
+      if (!isLoggedIn) return alert('Log in first!');
       e.preventDefault();
       const file = document.getElementById('photoFile').files[0];
       const category = document.getElementById('category').value.trim().toLowerCase();
@@ -107,4 +127,15 @@
       if (!file || !category) return alert('File and category required');
 
       try {
-        const storageRef = ref(storage, `images/${category}/${Date
+        const storageRef = ref(storage, `images/${category}/${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(snapshot.ref);
+
+        await addDoc(collection(db, 'photos'), {
+          url, category, title: title || file.name,
+          createdAt: serverTimestamp()
+        });
+
+        alert('Uploaded successfully!');
+        e.target.reset();
+        loadPhotos
